@@ -107,16 +107,15 @@ elif menu == "📝 Saisie & Calculs":
         trimestre = st.selectbox(
             "Sélectionner le Trimestre",
             ["Trimestre 1", "Trimestre 2", "Trimestre 3"],
+            key="trim_saisie",
         )
         matiere_saisie = st.selectbox(
             "Matière à évaluer", st.session_state.matieres["Matière"]
         )
 
-        # Tableau de saisie rapide pour la matière sélectionnée
         st.subheader(f"Saisie des notes pour : {matiere_saisie}")
         df_saisie = st.session_state.eleves[["Matricule", "Nom", "Prénom"]].copy()
 
-        # Récupérer les notes existantes si elles existent
         notes_existantes = st.session_state.notes[
             (st.session_state.notes["Matière"] == matiere_saisie)
             & (st.session_state.notes["Trimestre"] == trimestre)
@@ -138,11 +137,9 @@ elif menu == "📝 Saisie & Calculs":
         )
 
         if st.button("Enregistrer les notes de cette matière"):
-            # Mettre à jour les notes dans la session
             for index, row in edited_notes.iterrows():
                 mat = row["Matricule"]
                 note_val = row["Note"]
-                # Supprimer l'ancienne note si elle existe
                 st.session_state.notes = st.session_state.notes[
                     ~(
                         (st.session_state.notes["Matricule"] == mat)
@@ -150,7 +147,6 @@ elif menu == "📝 Saisie & Calculs":
                         & (st.session_state.notes["Trimestre"] == trimestre)
                     )
                 ]
-                # Ajouter la nouvelle
                 new_n = pd.DataFrame(
                     [[mat, matiere_saisie, note_val, trimestre]],
                     columns=["Matricule", "Matière", "Note", "Trimestre"],
@@ -161,10 +157,9 @@ elif menu == "📝 Saisie & Calculs":
             st.success("Notes enregistrées avec succès !")
 
         st.markdown("---")
-        st.subheader("🏆 Classement, Totaux et Moyennes Générales")
+        st.subheader("🏆 Classement Général de la Classe")
 
         if not st.session_state.notes.empty:
-            # Calcul automatique des totaux pondérés et moyennes
             resultats = []
             matieres_df = st.session_state.matieres
             total_coefficients = matieres_df["Coefficient"].sum()
@@ -202,12 +197,10 @@ elif menu == "📝 Saisie & Calculs":
 
             df_res = pd.DataFrame(resultats)
             if not df_res.empty:
-                # Calcul du rang basé sur la moyenne
                 df_res = df_res.sort_values(
                     by="Moyenne (/20)", ascending=False
                 ).reset_index(drop=True)
                 df_res["Rang"] = range(1, len(df_res) + 1)
-                # Réorganiser les colonnes
                 df_res = df_res[
                     [
                         "Rang",
@@ -218,12 +211,87 @@ elif menu == "📝 Saisie & Calculs":
                         "Moyenne (/20)",
                     ]
                 ]
-
                 st.dataframe(df_res, use_container_width=True)
 
 # ================= 5. BULLETINS =================
 elif menu == "📄 Bulletins":
-    st.title("Impression des Bulletins")
-    st.info(
-        "Module de génération de bulletins individuels basé sur les moyennes calculées."
-    )
+    st.title("Génération des Bulletins Scolaires")
+
+    if st.session_state.eleves.empty or st.session_state.notes.empty:
+        st.warning(
+            "Veuillez enregistrer des élèves et des notes pour générer les bulletins."
+        )
+    else:
+        col_b1, col_b2 = st.columns(2)
+        with col_b1:
+            trimestre_bul = st.selectbox(
+                "Période du bulletin",
+                ["Trimestre 1", "Trimestre 2", "Trimestre 3"],
+                key="trim_bul",
+            )
+        with col_b2:
+            eleve_choisi = st.selectbox(
+                "Sélectionner l'élève",
+                st.session_state.eleves["Matricule"]
+                + " - "
+                + st.session_state.eleves["Nom"]
+                + " "
+                + st.session_state.eleves["Prénom"],
+            )
+
+        if eleve_choisi:
+            mat_sel = eleve_choisi.split(" - ")[0]
+            infos_eleve = st.session_state.eleves[
+                st.session_state.eleves["Matricule"] == mat_sel
+            ].iloc[0]
+
+            st.markdown("---")
+            # En-tête du bulletin
+            st.markdown(
+                f"<h3 style='text-align: center;'>BULLETIN DE NOTES - {trimestre_bul.upper()}</h3>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"**Élève :** {infos_eleve['Nom']} {infos_eleve['Prénom']} | **Matricule :** {infos_eleve['Matricule']} | **Classe :** {infos_eleve['Classe']}"
+            )
+
+            # Récupérer les notes de l'élève pour ce trimestre
+            notes_el = st.session_state.notes[
+                (st.session_state.notes["Matricule"] == mat_sel)
+                & (st.session_state.notes["Trimestre"] == trimestre_bul)
+            ]
+
+            if not notes_el.empty:
+                # Fusionner avec les coefficients des matières
+                bulletin_df = notes_el.merge(
+                    st.session_state.matieres, on="Matière", how="left"
+                )
+                bulletin_df["Total Points"] = (
+                    bulletin_df["Note"] * bulletin_df["Coefficient"]
+                )
+
+                # Réorganiser les colonnes pour l'affichage
+                display_bul = bulletin_df[
+                    ["Matière", "Coefficient", "Note", "Total Points"]
+                ]
+                st.dataframe(display_bul, use_container_width=True)
+
+                # Calcul des totaux et moyenne de l'élève
+                total_points_el = display_bul["Total Points"].sum()
+                total_coeffs = st.session_state.matieres["Coefficient"].sum()
+                moyenne_el = (
+                    total_points_el / total_coeffs if total_coeffs > 0 else 0
+                )
+
+                st.markdown(f"### Résultats de l'élève :")
+                col_res1, col_res2, col_res3 = st.columns(3)
+                with col_res1:
+                    st.metric("Total Points", f"{total_points_el}")
+                with col_res2:
+                    st.metric("Total Coefficients", f"{total_coeffs}")
+                with col_res3:
+                    st.metric("Moyenne Trimestrielle", f"{round(moyenne_el, 2)} / 20")
+            else:
+                st.info(
+                    "Aucune note n'a été saisie pour cet élève sur cette période."
+                )
